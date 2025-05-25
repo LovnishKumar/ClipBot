@@ -1,8 +1,9 @@
 import { google, youtube_v3 } from "googleapis";
 import axios from "axios";
-import dotenv from "dotenv";
-
-dotenv.config();
+import dotenv from 'dotenv';
+if (process.env.NODE_ENV !== "production") {
+  require("dotenv").config();
+}
 
 const API_KEYS = [process.env.YOUTUBE_API_KEY_1!, process.env.YOUTUBE_API_KEY_2!].filter(Boolean);
 if (API_KEYS.length === 0) throw new Error("No YouTube API keys found!");
