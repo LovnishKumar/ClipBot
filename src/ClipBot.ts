@@ -1,13 +1,11 @@
-import { google } from "googleapis";
+import { google, youtube_v3 } from "googleapis";
 import axios from "axios";
 import dotenv from "dotenv";
 
 dotenv.config();
 
-const youtube = google.youtube({
-  version: "v3",
-  auth: process.env.YOUTUBE_API_KEY,
-});
+const API_KEYS = (process.env.YOUTUBE_API_KEYS || "").split(",").map(k => k.trim()).filter(k => k.length > 0);
+if (API_KEYS.length === 0) throw new Error("No YouTube API keys found in YOUTUBE_API_KEYS env variable!");
 
 const CHANNEL_ID = process.env.CHANNEL_ID!;
 const WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL!;
@@ -15,7 +13,8 @@ const POLL_INTERVAL = 15000;
 const CLIP_DURATION = 30;
 const CLIP_COOLDOWN = 30 * 1000;
 
-let liveChatId: string | null = null;
+let keyIndex = 0; // current key index
+let liveChatId: string | undefined = "" ; // live chat ID, will be set after fetching live broadcast
 let streamStartTime: Date | null = null;
 let lastMessageTimestamp = "";
 let lastClipTimestamp = 0;
@@ -23,6 +22,36 @@ let currentVideoId: string | null = null;
 let streamTitle: string | null = null;
 let nextPageToken: any = undefined;
 let pollingInterval = POLL_INTERVAL;
+
+function getYouTubeClient() {
+  return google.youtube({
+    version: "v3",
+    auth: API_KEYS[keyIndex],
+  });
+}
+
+async function makeYouTubeRequest<T>(fn: (client: youtube_v3.Youtube) => Promise<T>): Promise<T> {
+  const maxRetries = API_KEYS.length;
+  let attempts = 0;
+
+  while (attempts < maxRetries) {
+    const youtube = getYouTubeClient();
+    try {
+      return await fn(youtube);
+    } catch (error: any) {
+      // Check for quota exceeded error
+      if (error.code === 403 && error.errors?.some((e: any) => e.reason === "quotaExceeded")) {
+        console.warn(`⚠️ Quota exceeded for API key index ${keyIndex}, switching key...`);
+        keyIndex = (keyIndex + 1) % API_KEYS.length;
+        attempts++;
+        continue; // retry with new key
+      } else {
+        throw error; // other errors are rethrown
+      }
+    }
+  }
+  throw new Error("❌ All API keys exhausted quota.");
+}
 
 function formatTime(seconds: number): string {
   const h = String(Math.floor(seconds / 3600)).padStart(2, "0");
@@ -32,13 +61,15 @@ function formatTime(seconds: number): string {
 }
 
 async function getLiveBroadcast(): Promise<void> {
-  const res = await youtube.search.list({
-    part: ["snippet"],
-    channelId: CHANNEL_ID,
-    eventType: "live",
-    type: ["video"],
-    maxResults: 1,
-  });
+  const res = await makeYouTubeRequest(youtube =>
+    youtube.search.list({
+      part: ["snippet"],
+      channelId: CHANNEL_ID,
+      eventType: "live",
+      type: ["video"],
+      maxResults: 1,
+    })
+  );
 
   const live = res.data.items?.[0];
   if (!live) throw new Error("❌ No live broadcast found.");
@@ -47,10 +78,12 @@ async function getLiveBroadcast(): Promise<void> {
   currentVideoId = videoId;
   streamTitle = live.snippet?.title || "Untitled Stream";
 
-  const videoRes = await youtube.videos.list({
-    part: ["liveStreamingDetails"],
-    id: [videoId],
-  });
+  const videoRes = await makeYouTubeRequest(youtube =>
+    youtube.videos.list({
+      part: ["liveStreamingDetails"],
+      id: [videoId],
+    })
+  );
 
   const details = videoRes.data.items?.[0]?.liveStreamingDetails;
   if (!details?.activeLiveChatId || !details.actualStartTime) {
@@ -69,11 +102,13 @@ async function pollChat(): Promise<void> {
   if (!liveChatId || !streamStartTime || !currentVideoId) return;
 
   try {
-    const res = await youtube.liveChatMessages.list({
-      liveChatId,
-      part: ["snippet", "authorDetails"],
-      pageToken: nextPageToken,
-    });
+    const res = await makeYouTubeRequest(youtube =>
+      youtube.liveChatMessages.list({
+        liveChatId ,
+        part: ["snippet", "authorDetails"],
+        pageToken: nextPageToken,
+      })
+    );
 
     nextPageToken = res.data.nextPageToken;
     pollingInterval = res.data.pollingIntervalMillis || POLL_INTERVAL;
