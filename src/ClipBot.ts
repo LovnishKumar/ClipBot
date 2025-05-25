@@ -4,8 +4,8 @@ import dotenv from "dotenv";
 
 dotenv.config();
 
-const API_KEYS = (process.env.YOUTUBE_API_KEYS || "").split(",").map(k => k.trim()).filter(k => k.length > 0);
-if (API_KEYS.length === 0) throw new Error("No YouTube API keys found in YOUTUBE_API_KEYS env variable!");
+const API_KEYS = [process.env.YOUTUBE_API_KEY_1!, process.env.YOUTUBE_API_KEY_2!].filter(Boolean);
+if (API_KEYS.length === 0) throw new Error("No YouTube API keys found!");
 
 const CHANNEL_ID = process.env.CHANNEL_ID!;
 const WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL!;
@@ -13,8 +13,8 @@ const POLL_INTERVAL = 15000;
 const CLIP_DURATION = 30;
 const CLIP_COOLDOWN = 30 * 1000;
 
-let keyIndex = 0; // current key index
-let liveChatId: string | undefined = "" ; // live chat ID, will be set after fetching live broadcast
+let keyIndex = 0;
+let liveChatId: string = "";
 let streamStartTime: Date | null = null;
 let lastMessageTimestamp = "";
 let lastClipTimestamp = 0;
@@ -39,18 +39,17 @@ async function makeYouTubeRequest<T>(fn: (client: youtube_v3.Youtube) => Promise
     try {
       return await fn(youtube);
     } catch (error: any) {
-      // Check for quota exceeded error
       if (error.code === 403 && error.errors?.some((e: any) => e.reason === "quotaExceeded")) {
-        console.warn(`⚠️ Quota exceeded for API key index ${keyIndex}, switching key...`);
+        console.warn(`⚠️ Quota exceeded for API key ${keyIndex + 1}, switching to next...`);
         keyIndex = (keyIndex + 1) % API_KEYS.length;
         attempts++;
-        continue; // retry with new key
+        continue;
       } else {
-        throw error; // other errors are rethrown
+        throw error;
       }
     }
   }
-  throw new Error("❌ All API keys exhausted quota.");
+  throw new Error("❌ All API keys have exceeded their quota.");
 }
 
 function formatTime(seconds: number): string {
@@ -104,7 +103,7 @@ async function pollChat(): Promise<void> {
   try {
     const res = await makeYouTubeRequest(youtube =>
       youtube.liveChatMessages.list({
-        liveChatId ,
+        liveChatId,
         part: ["snippet", "authorDetails"],
         pageToken: nextPageToken,
       })
@@ -142,7 +141,6 @@ async function pollChat(): Promise<void> {
         const formattedEnd = formatTime(end);
         const videoLink = `https://youtu.be/${currentVideoId}?t=${start}`;
 
-        // Parse optional custom title
         const parts = text.trim().split(" ");
         const customTitle = parts.slice(1).join(" ");
         const titleText = customTitle || "Untitled Clip";
