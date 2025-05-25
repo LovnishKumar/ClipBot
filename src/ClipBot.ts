@@ -4,6 +4,7 @@ import dotenv from 'dotenv';
 if (process.env.NODE_ENV !== "production") {
   require("dotenv").config();
 }
+console.log("Loaded API Keys:", process.env.YOUTUBE_API_KEY_1, process.env.YOUTUBE_API_KEY_2);
 
 const API_KEYS = [process.env.YOUTUBE_API_KEY_1!, process.env.YOUTUBE_API_KEY_2!].filter(Boolean);
 if (API_KEYS.length === 0) throw new Error("No YouTube API keys found!");
