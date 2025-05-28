@@ -11,7 +11,7 @@ if (API_KEYS.length === 0) throw new Error("No YouTube API keys found!");
 
 const CHANNEL_ID = process.env.CHANNEL_ID!;
 const WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL!;
-const POLL_INTERVAL = 15000;
+const POLL_INTERVAL = 150000000;
 const CLIP_DURATION = 30;
 const CLIP_COOLDOWN = 30 * 1000;
 
